@@ -2,11 +2,18 @@
 /**
  * dsh-weekstrip — patch engine and CLI.
  *
- * Appends a local usage panel (tokens / last 7 days / activity) under Settings → Account in DSH Desktop,
- * by inserting one self-contained module into the account-settings client bundle that the Desktop ships.
+ * Appends a local usage panel (tokens / last 7 days / activity) under Settings → Account in DSH,
+ * by inserting one self-contained module into the account-settings client bundle.
+ *
+ * Two install layouts are supported:
+ *   - DSH Desktop: `<resources>/app/node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js`
+ *     is a loose file and is edited in place.
+ *   - DSH NEXT: the same bundle lives inside `<resources>/app.asar`. There, the patched bundle is
+ *     written to `<resources>/app.asar.unpacked/...` and the archive header is rewritten so that
+ *     Electron reads the override (see src/asar.mjs). No data region is moved.
  *
  * Commands:
- *   node src/patch.mjs status    show target, patched state, anchor hits, backups
+ *   node src/patch.mjs status    show target, layout, patched state, anchor hits, backups
  *   node src/patch.mjs verify    anchors + syntax check, writes nothing
  *   node src/patch.mjs apply     back up, then patch (idempotent)
  *   node src/patch.mjs revert    restore the most recent backup
@@ -15,27 +22,25 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PATCH_MARKER, VERIFIED_VERSIONS, textPatches } from './anchors.mjs'
 import { missingBundleMessage, packageVersionOf, resolveBundle } from './bundle.mjs'
+import { applyAsarBundle, listAsarBackups, planAsarOverride, readAsarEntry, readAsarIndex, revertAsarBundle } from './asar.mjs'
+import { PatchError } from './errors.mjs'
+
+export { PatchError }
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
 export const SNIPPET_PATH = join(HERE, 'snippet.js')
 export const BACKUP_DIR = join(REPO_ROOT, 'backups')
 const SIMULATED_NAME = 'client.simulated.js'
+const LOOSE_BACKUP_PATTERN = /^client\.js\.\d{14}\.bak$/
 
-/** Thrown when the target bundle does not match the anchor set (unknown or changed DSH version). */
-export class PatchError extends Error {
-  constructor(message) {
-    super(message)
-    this.name = 'PatchError'
-  }
-}
-
+/** Read the module text that is appended to the bundle. */
 export function readSnippet(snippetPath = SNIPPET_PATH) {
   if (!existsSync(snippetPath)) throw new PatchError(`snippet not found: ${snippetPath}`)
   return readFileSync(snippetPath, 'utf8').replace(/\r\n/g, '\n')
@@ -83,16 +88,13 @@ function sha256(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
-function backupPath() {
-  const stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)
-  return join(BACKUP_DIR, `client.js.${stamp}.bak`)
+function looseStamp() {
+  return new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)
 }
 
-function listBackups() {
+function listLooseBackups() {
   if (!existsSync(BACKUP_DIR)) return []
-  return readdirSync(BACKUP_DIR)
-    .filter((name) => name.startsWith('client.js.') && name.endsWith('.bak'))
-    .sort()
+  return readdirSync(BACKUP_DIR).filter((name) => LOOSE_BACKUP_PATTERN.test(name)).sort()
 }
 
 /** Syntax gate on a candidate text: written to a scratch file and checked by `node --check`. */
@@ -110,61 +112,106 @@ export function checkSyntax(text) {
   }
 }
 
+/**
+ * Resolve the target install and validate that it is reachable.
+ * @param {string[]} argv
+ * @returns {{kind: 'loose'|'asar', version: string|null, path: string, asarPath?: string, relPath?: string, origin: string}}
+ */
 function resolveTarget(argv) {
   const found = resolveBundle({ argv })
   if (found === null) {
     console.error(missingBundleMessage())
     process.exit(2)
   }
-  if (!existsSync(found.path)) {
-    console.error(`Bundle not found: ${found.path}\n\n${missingBundleMessage()}`)
+  const path = found.kind === 'asar' ? found.asarPath : found.path
+  if (!existsSync(path)) {
+    console.error(`Target not found: ${path}\n\n${missingBundleMessage()}`)
     process.exit(2)
   }
-  const version = packageVersionOf(found.path)
-  if (version !== null && !VERIFIED_VERSIONS.includes(version)) {
-    console.warn(`note: this anchor set was verified against DSH ${VERIFIED_VERSIONS.join(', ')}; target is ${version}.`)
+  const target = { ...found, version: packageVersionOf(found) }
+  if (target.version !== null && !VERIFIED_VERSIONS.includes(target.version)) {
+    console.warn(`note: this anchor set was verified against DSH ${VERIFIED_VERSIONS.join(', ')}; target is ${target.version}.`)
   }
-  return { ...found, version }
+  return target
 }
 
 function report(target) {
-  console.log(`target     : ${target.path}`)
+  if (target.kind === 'asar') {
+    console.log(`target     : ${target.asarPath}`)
+    console.log(`inside     : ${target.relPath}`)
+    console.log('layout     : asar archive (patched bundle goes to app.asar.unpacked)')
+  } else {
+    console.log(`target     : ${target.path}`)
+    console.log('layout     : loose app directory')
+  }
   if (target.version !== null) console.log(`dsh version: ${target.version}`)
   console.log(`located by : ${target.origin}`)
 }
 
+/** Effective bundle text: the loose file, or the asar entry (its unpacked override once patched). */
+function readTargetText(target) {
+  if (target.kind === 'loose') return { text: readFileSync(target.path, 'utf8') }
+  const index = readAsarIndex(target.asarPath)
+  const { entry, buffer, source } = readAsarEntry(index, target.relPath)
+  return { text: buffer.toString('utf8'), index, source, entry }
+}
+
+function backupsFor(target) {
+  return target.kind === 'asar' ? listAsarBackups(BACKUP_DIR, target.asarPath) : listLooseBackups()
+}
+
 function status(argv) {
   const target = resolveTarget(argv)
-  const text = readFileSync(target.path, 'utf8')
+  const { text, index, source, entry } = readTargetText(target)
   const snippet = readSnippet()
   const patches = textPatches(snippet)
   report(target)
-  console.log(`size       : ${Buffer.byteLength(text, 'utf8')} bytes`)
+  if (target.kind === 'asar') {
+    console.log(`entry      : ${entry.unpacked === true ? 'unpacked override' : 'packed in archive'} (${source})`)
+    console.log(`size       : ${Buffer.byteLength(text, 'utf8')} bytes (effective bundle)`)
+    console.log(`archive    : ${index.fileSize} bytes, header ${index.headerSize} bytes, data at ${index.dataStart}`)
+  } else {
+    console.log(`size       : ${Buffer.byteLength(text, 'utf8')} bytes`)
+  }
   console.log(`state      : ${isPatched(text) ? 'patched' : 'unpatched'}`)
-  console.log(`anchors    : ${patches.map((patch) => `${patch.name}=${countOccurrences(text, patch.find)}`).join(' ')}`)
-  const backups = listBackups()
+  console.log(`anchors    : ${patches.map((patch) => {
+    const hits = countOccurrences(text, patch.find)
+    // The two anchors that are replaced (not inserted before) disappear once the patch is in place;
+    // showing "0" next to them reads like a mismatch, so say what it actually means.
+    return `${patch.name}=${hits}${hits === 0 && patch.replace ? '(replaced)' : ''}`
+  }).join(' ')}`)
+  const backups = backupsFor(target)
   console.log(`backups    : ${backups.length > 0 ? backups.join(', ') : '(none)'}`)
   return 0
 }
 
 function verify(argv) {
   const target = resolveTarget(argv)
-  const text = readFileSync(target.path, 'utf8')
+  const { text, index } = readTargetText(target)
   report(target)
   if (isPatched(text)) {
     console.log('already patched: skipping candidate build (revert first to re-verify anchors).')
     return 0
   }
-  const next = buildPatchedText(text, readSnippet())
-  console.log('anchors    : all 5 matched exactly once')
+  const snippet = readSnippet()
+  const next = buildPatchedText(text, snippet)
+  console.log(`anchors    : all ${textPatches(snippet).length} matched exactly once`)
   checkSyntax(next)
   console.log(`syntax     : ok (${Buffer.byteLength(next, 'utf8')} bytes); safe to apply`)
+  if (target.kind === 'asar' && index !== undefined) {
+    const plan = planAsarOverride(index, target.relPath, Buffer.from(next, 'utf8'))
+    if (plan.fits) {
+      console.log(`asar write : fits the header slot (${plan.pinned.slack} bytes slack) — in-place header rewrite, data region untouched`)
+    } else {
+      console.log('asar write : header outgrew its slot — apply will rewrite the whole archive (fully quit DSH first)')
+    }
+  }
   return 0
 }
 
 function apply(argv) {
   const target = resolveTarget(argv)
-  const text = readFileSync(target.path, 'utf8')
+  const { text } = readTargetText(target)
   report(target)
   if (isPatched(text)) {
     console.log('already patched: nothing to do (run revert first to re-apply from a clean bundle).')
@@ -172,37 +219,61 @@ function apply(argv) {
   }
   const next = buildPatchedText(text, readSnippet())
   checkSyntax(next)
+  if (target.kind === 'asar') {
+    const result = applyAsarBundle({
+      asarPath: target.asarPath,
+      relPath: target.relPath,
+      content: next,
+      backupDir: BACKUP_DIR,
+    })
+    console.log(`write      : ${result.mode === 'header' ? 'header rewrite in place (data region untouched)' : 'full archive rewrite'}`)
+    console.log(`backup     : ${result.backup}`)
+    console.log(`override   : ${result.unpackedPath}`)
+    console.log(`sha256     : ${sha256(text)} -> ${sha256(next)}`)
+    console.log('')
+    console.log('Applied. Fully quit and relaunch DSH (the client bundle is snapshotted at host start),')
+    console.log('then open Settings → Account. A plain page refresh does NOT pick up the change.')
+    console.log('Rollback with: node src/patch.mjs revert --resources "<install>/resources"')
+    return 0
+  }
   mkdirSync(BACKUP_DIR, { recursive: true })
-  const backup = backupPath()
+  const backup = join(BACKUP_DIR, `client.js.${looseStamp()}.bak`)
   copyFileSync(target.path, backup)
   writeFileSync(target.path, next, 'utf8')
   console.log(`backup     : ${backup}`)
   console.log(`sha256     : ${sha256(text)} -> ${sha256(next)}`)
   console.log('')
-  console.log('Applied. Fully quit and relaunch DSH Desktop (the client bundle is snapshotted at host start),')
+  console.log('Applied. Fully quit and relaunch DSH (the client bundle is snapshotted at host start),')
   console.log('then open Settings → Account. A plain page refresh does NOT pick up the change.')
   return 0
 }
 
 function revert(argv) {
   const target = resolveTarget(argv)
-  const backups = listBackups()
+  report(target)
+  if (target.kind === 'asar') {
+    const result = revertAsarBundle({ asarPath: target.asarPath, backupDir: BACKUP_DIR })
+    console.log(`restored   : ${result.backup} (${result.mode === 'header' ? 'header block' : 'full archive'})`)
+    if (result.removedOverride) console.log(`override   : ${result.unpackedPath} (removed)`)
+    console.log('Relaunch DSH for the revert to take effect.')
+    return 0
+  }
+  const backups = listLooseBackups()
   if (backups.length === 0) throw new PatchError(`no backups found in ${BACKUP_DIR}`)
   const latest = join(BACKUP_DIR, backups[backups.length - 1])
-  report(target)
   copyFileSync(latest, target.path)
   console.log(`restored   : ${latest}`)
-  console.log('Relaunch DSH Desktop for the revert to take effect.')
+  console.log('Relaunch DSH for the revert to take effect.')
   return 0
 }
 
 function help() {
   console.log(`dsh-weekstrip - patch engine
 
-usage: node src/patch.mjs <command> [--bundle <client.js>] [--resources <resources dir>]
+usage: node src/patch.mjs <command> [--resources <resources dir>] [--asar <app.asar>] [--bundle <client.js>]
 
 commands
-  status    show target bundle, patched state, anchor hits and backups
+  status    show target bundle, layout, patched state, anchor hits and backups
   verify    anchor + syntax check, writes nothing
   apply     back up the bundle, then insert the usage panel (idempotent)
   revert    restore the most recent backup
@@ -210,15 +281,21 @@ commands
 
 environment
   DSH_ACCOUNT_BUNDLE   explicit path to .../dsh-client-ui-settings-account/lib/client.js
-  DSH_RESOURCES_ROOT   Electron "resources" directory of the DSH Desktop install
+  DSH_ASAR             explicit path to .../resources/app.asar (asar layout)
+  DSH_RESOURCES_ROOT   Electron "resources" directory of the DSH install
 
-After apply/revert, fully quit and relaunch DSH Desktop.`)
+layouts
+  loose        <resources>/app/node_modules/.../lib/client.js is edited in place
+  asar         <resources>/app.asar (DSH NEXT / official 0.2.1-rc.5 client): the patched bundle
+               becomes an app.asar.unpacked override; the entry is found by path suffix
+
+After apply/revert, fully quit and relaunch DSH.`)
   return 0
 }
 
 const COMMANDS = { status, verify, apply, revert, help }
 /** Flags that consume the following argv item, so that item is not mistaken for a command word. */
-const VALUE_FLAGS = new Set(['--bundle', '--resources'])
+const VALUE_FLAGS = new Set(['--bundle', '--resources', '--asar'])
 
 /** Positional words only: flags and their values are skipped (`--bundle <path> apply` → `apply`). */
 function positionalArgs(argv) {

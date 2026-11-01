@@ -1,8 +1,8 @@
 {
   "name": "dsh-weekstrip",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Unofficial patch: token usage, last-7-days usage and activity stats under Settings → Account in DSH Desktop",
+  "description": "Unofficial patch: token usage, last-7-days usage and activity stats under Settings → Account in DSH Desktop, DSH NEXT and the official 0.2.1-rc.5 client (loose app dir or app.asar)",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -11,6 +11,9 @@
   "keywords": [
     "dsh",
     "deepseek-harness",
+    "dsh-desktop",
+    "dsh-next",
+    "asar",
     "patch",
     "settings",
     "token-usage",
@@ -26,6 +29,6 @@
     "load-test": "node scripts/load-test.mjs",
     "render-test": "node scripts/render-test.mjs",
     "preview": "node scripts/build-preview.mjs",
-    "check": "node --check src/snippet.js && node --check src/anchors.mjs && node --check src/bundle.mjs && node --check src/patch.mjs && node scripts/engine-test.mjs && node scripts/logic-test.mjs"
+    "check": "node --check src/snippet.js && node --check src/anchors.mjs && node --check src/errors.mjs && node --check src/asar.mjs && node --check src/bundle.mjs && node --check src/patch.mjs && node scripts/engine-test.mjs && node scripts/logic-test.mjs"
   }
 }

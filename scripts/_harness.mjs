@@ -2,28 +2,40 @@
  * Shared test harness: locate a DSH install, materialize the patched bundle text (applying the patch
  * in memory when the install is still clean), and evaluate it the way the DSH web shell does.
  *
- * Nothing here writes to the install; tests operate on an in-memory copy.
+ * Nothing here writes to the install; tests operate on an in-memory copy. Both layouts work: a loose
+ * `<resources>/app/...client.js` and a DSH NEXT `app.asar` (the entry is read through the archive, or
+ * through its unpacked override once patched).
  */
 
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { readAsarEntry, readAsarIndex } from '../src/asar.mjs'
 import { missingBundleMessage, resolveBundle } from '../src/bundle.mjs'
 import { buildPatchedText, isPatched, readSnippet } from '../src/patch.mjs'
 
 /** Resolve the target bundle; exiting 0 with a skip notice keeps CI green when no DSH install exists. */
 export function loadBundleForTests(argv = process.argv.slice(2)) {
-  const target = resolveBundle({ argv })
-  if (target === null) {
-    console.log('skip: no DSH Desktop install found on this machine.')
-    console.log('      set DSH_ACCOUNT_BUNDLE / DSH_RESOURCES_ROOT or pass --bundle <client.js>.')
+  const found = resolveBundle({ argv })
+  if (found === null) {
+    console.log('skip: no DSH Desktop / DSH NEXT install found on this machine.')
+    console.log('      set DSH_ACCOUNT_BUNDLE / DSH_ASAR / DSH_RESOURCES_ROOT or pass --resources <dir>.')
     console.log('')
     console.log(missingBundleMessage())
     process.exit(0)
   }
-  const raw = readFileSync(target.path, 'utf8')
+  let raw
+  let displayPath
+  if (found.kind === 'asar') {
+    const index = readAsarIndex(found.asarPath)
+    raw = readAsarEntry(index, found.relPath).buffer.toString('utf8')
+    displayPath = `${found.asarPath}!${found.relPath}`
+  } else {
+    raw = readFileSync(found.path, 'utf8')
+    displayPath = found.path
+  }
   const state = isPatched(raw) ? 'patched' : 'rebuilt-from-clean'
   const text = state === 'patched' ? raw : buildPatchedText(raw, readSnippet())
-  return { target, text, state }
+  return { target: { ...found, path: displayPath }, text, state }
 }
 
 /** Minimal React: only what the injected module uses outside a real render. */

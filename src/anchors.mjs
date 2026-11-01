@@ -112,4 +112,4 @@ export function textPatches(snippet) {
 }
 
 /** DSH versions this anchor set has been verified against; unknown versions are attempted and reported. */
-export const VERIFIED_VERSIONS = ['0.2.1-rc.2']
+export const VERIFIED_VERSIONS = ['0.2.1-rc.2', '0.2.1-rc.4', '0.2.1-rc.5']
