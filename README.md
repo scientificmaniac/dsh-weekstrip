@@ -4,10 +4,10 @@
 
 # dsh-weekstrip
 
-为 **DSH Desktop** / **DSH NEXT** / **官方 0.2.1-rc.5 客户端**（DeepSeek Harness）准备的社区补丁：
+为 **DSH Desktop** / **DSH NEXT** / **官方 0.2.1-rc.5、0.2.2-rc.1 客户端**（DeepSeek Harness）准备的社区补丁：
 在 **设置 → 账号与余额** 下方增加一块本地用量面板，包含 Token 统计、近 7 天用量与活跃度。
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue) ![DSH Desktop / NEXT](https://img.shields.io/badge/DSH%20Desktop%20%2F%20NEXT-0.2.1--rc.2%20%7C%20rc.4%20%7C%20rc.5-4D6BFE) ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue) ![DSH Desktop / NEXT](https://img.shields.io/badge/DSH%20Desktop%20%2F%20NEXT-0.2.1--rc.2%20%7C%20rc.4%20%7C%20rc.5%20%7C%200.2.2--rc.1-4D6BFE) ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 简体中文 · [English](README.en.md)
 
@@ -16,7 +16,7 @@
 > [!NOTE]
 > 这是社区补丁，不是 DeepSeek 官方功能。它只修改你自己机器上 DSH 安装目录里的那个账号设置 bundle：<br>
 > **loose 布局**（旧版 DSH Desktop）直接改 `resources/app/...` 下的文件；**asar 布局**（DSH NEXT 与
-> 0.2.1-rc.5 起的官方客户端）把整个应用打进 `resources/app.asar`，补丁会把改好的 bundle 放进
+> 0.2.1-rc.5 起的官方客户端，含 0.2.2-rc.1）把整个应用打进 `resources/app.asar`，补丁会把改好的 bundle 放进
 > `resources/app.asar.unpacked/...`，并且只在归档头里把该条目标记为 unpacked。<br>
 > asar 内的实际路径随构建变化（`node_modules/...` 或 `dsh/node_modules/...`），补丁按路径后缀自动定位。<br>
 > 应用升级会替换安装文件，补丁随之失效，重跑一次即可；`revert` 可以逐字节还原。
@@ -44,7 +44,7 @@
 
 | | |
 | --- | --- |
-| DSH Desktop / DSH NEXT / 官方客户端 | 已安装的桌面版；锚点针对 **0.2.1-rc.2**（loose 布局）、**0.2.1-rc.4**（DSH NEXT，asar 布局）与 **0.2.1-rc.5**（官方客户端，asar 内 `dsh/` 前缀）验证 |
+| DSH Desktop / DSH NEXT / 官方客户端 | 已安装的桌面版；锚点针对 **0.2.1-rc.2**（loose 布局）、**0.2.1-rc.4**（DSH NEXT，asar 布局）、**0.2.1-rc.5** 与 **0.2.2-rc.1**（官方客户端，asar 内 `dsh/` 前缀）验证 |
 | Node.js | **18 或更高**（仅补丁脚本需要） |
 | dsh-context 插件 | 可选。未安装时：累计 Token 仍可用，按天窗口/活跃度可能为空 |
 
@@ -55,7 +55,7 @@
 | 布局 | 目标 | 写入方式 |
 | --- | --- | --- |
 | loose（旧版 DSH Desktop） | `<resources>/app/node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js` | 备份后原地替换该文件 |
-| asar（DSH NEXT / 0.2.1-rc.5 官方客户端） | `<resources>/app.asar` 内的同一条目（归档根下或 `dsh/` 下，按后缀自动定位） | 补丁写进 `<resources>/app.asar.unpacked/...`，并只重写归档头把该条目标记为 `unpacked`（数据区不动） |
+| asar（DSH NEXT / 0.2.1-rc.5、0.2.2-rc.1 官方客户端） | `<resources>/app.asar` 内的同一条目（归档根下或 `dsh/` 下，按后缀自动定位） | 补丁写进 `<resources>/app.asar.unpacked/...`，并只重写归档头把该条目标记为 `unpacked`（数据区不动） |
 
 显式传 `resources` 目录、`app.asar` 路径，或用环境变量：
 
@@ -129,18 +129,18 @@ client bundle 插入：
 账号设置 bundle 在不同构建里的存放方式不同，`apply` 会按布局选择写入方式：
 
 - **loose**（旧版 DSH Desktop）：`resources/app/` 是解包目录，备份后原地改写 `lib/client.js`。
-- **asar**（DSH NEXT、0.2.1-rc.5 起的官方客户端）：整个应用打进 `resources/app.asar`。Electron 的 asar
+- **asar**（DSH NEXT、0.2.1-rc.5 与 0.2.2-rc.1 起的官方客户端）：整个应用打进 `resources/app.asar`。Electron 的 asar
   读取器会把 header 中 `unpacked: true` 的条目改从 `resources/app.asar.unpacked/<path>` 读取（原生模块
   就是这么发布的）。补丁因此只做两件事：把改好的 bundle 写到对应的 `.unpacked` 路径；重写归档头
   （约 5 MB）把该条目标记为 unpacked、刷新 `size`、去掉已失效的 `integrity`。归档数据区完全不动，
   回滚只需写回原始头部，恢复后与打补丁前**逐字节一致**。
-- asar 内的目录前缀不固定：`0.2.1-rc.4`（DSH NEXT）是归档根的 `node_modules/...`，`0.2.1-rc.5`
-  （官方客户端）把运行时嵌在 `dsh/` 下面（`dsh/node_modules/...`）。补丁按
+- asar 内的目录前缀不固定：`0.2.1-rc.4`（DSH NEXT）是归档根的 `node_modules/...`，`0.2.1-rc.5` 与
+  `0.2.2-rc.1`（官方客户端）把运行时嵌在 `dsh/` 下面（`dsh/node_modules/...`）。补丁按
   `node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js` 后缀遍历归档头定位，
   两种前缀都能命中。若归档里出现**两份**同名 bundle，补丁会中止并列出候选，要求用
   `--bundle "<install>/resources/app.asar/<path>"` 指定，不会猜测。
 
-这条路径依赖 Electron 自身的 asar 语义，并已实测：`0.2.1-rc.5` 官方客户端的宿主进程由
+这条路径依赖 Electron 自身的 asar 语义，并已实测：`0.2.1-rc.5` 与 `0.2.2-rc.1` 官方客户端的宿主进程由
 `DeepSeek Harness.exe` 以 `ELECTRON_RUN_AS_NODE=1` 启动，读取客户端 bundle 时走 Electron 的 asar 垫片，
 `readFileSync` / `stat` 都会命中 `.unpacked` 覆盖；该客户端启用了 asar 的 `unpacked` 机制，
 但**没有**开启 `EnableEmbeddedAsarIntegrityValidation`，所以重写头部不会触发完整性校验。
@@ -167,6 +167,7 @@ npm run preview        # 重新生成 docs/preview.html（浅色 + 深色，中�
 | `0.2.1-rc.2` | 已验证（loose 布局，锚点端到端测试） |
 | `0.2.1-rc.4` | 已验证（DSH NEXT，asar 布局，含覆盖与回滚往返） |
 | `0.2.1-rc.5` | 已验证（官方客户端，asar 内 `dsh/` 前缀，含覆盖与回滚往返） |
+| `0.2.2-rc.1` | 已验证（官方客户端，asar 内 `dsh/` 前缀，头部原地重写，含覆盖与回滚往返） |
 | 其它版本 | 会尝试套用；锚点移动则安全中止 |
 
 ## 许可与隐私

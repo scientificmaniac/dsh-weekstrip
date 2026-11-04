@@ -1,8 +1,8 @@
 {
   "name": "dsh-weekstrip",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
-  "description": "Unofficial patch: token usage, last-7-days usage and activity stats under Settings → Account in DSH Desktop, DSH NEXT and the official 0.2.1-rc.5 client (loose app dir or app.asar)",
+  "description": "Unofficial patch: token usage, last-7-days usage and activity stats under Settings → Account in DSH Desktop, DSH NEXT and the official 0.2.1-rc.5 / 0.2.2-rc.1 clients (loose app dir or app.asar)",
   "type": "module",
   "license": "MIT",
   "engines": {

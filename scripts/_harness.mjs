@@ -120,12 +120,16 @@ export function evaluateBundle(text, options = {}) {
   vm.runInContext(source, context, { filename: options.filename ?? 'client.js' })
   if (rows.length !== 1) throw new Error(`expected 1 module factory, got ${rows.length}`)
   const { React, Fragment } = createReactShim()
-  const exports = rows[0].factory((name) => {
+  const requireStub = (name) => {
     if (name === 'react') return React
     if (name === 'react/jsx-runtime') {
       return { jsx: React.createElement, jsxs: React.createElement, Fragment }
     }
     return proxyModule(name)
-  })
+  }
+  // The 0.2.2-rc.1 shell added `require.asset(id)` for plugin images (the account settings bundle now
+  // ships an onboarding flow). Only a stable URL is needed here: the tests never load the image.
+  requireStub.asset = (id) => `asset://${id}`
+  const exports = rows[0].factory(requireStub)
   return { exports, moduleId: rows[0].id }
 }

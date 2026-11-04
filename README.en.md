@@ -4,11 +4,11 @@
 
 # dsh-weekstrip
 
-An unofficial patch for **DSH Desktop** / **DSH NEXT** / the **official 0.2.1-rc.5 client** (DeepSeek
-Harness) that puts a local usage panel under **Settings → Account & balance**: token usage, last 7 days,
-and activity.
+An unofficial patch for **DSH Desktop** / **DSH NEXT** / the **official 0.2.1-rc.5 and 0.2.2-rc.1 clients**
+(DeepSeek Harness) that puts a local usage panel under **Settings → Account & balance**: token usage, last 7
+days, and activity.
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue) ![DSH Desktop / NEXT](https://img.shields.io/badge/DSH%20Desktop%20%2F%20NEXT-0.2.1--rc.2%20%7C%20rc.4%20%7C%20rc.5-4D6BFE) ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue) ![DSH Desktop / NEXT](https://img.shields.io/badge/DSH%20Desktop%20%2F%20NEXT-0.2.1--rc.2%20%7C%20rc.4%20%7C%20rc.5%20%7C%200.2.2--rc.1-4D6BFE) ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 English · [简体中文](README.md)
 
@@ -46,7 +46,7 @@ Static preview in light and dark themes: [`docs/preview.html`](docs/preview.html
 
 | | |
 | --- | --- |
-| DSH Desktop / DSH NEXT / official client | Installed desktop app. Anchor set verified against **0.2.1-rc.2** (loose layout), **0.2.1-rc.4** (DSH NEXT, asar layout) and **0.2.1-rc.5** (official client, runtime nested under `dsh/` inside the asar) |
+| DSH Desktop / DSH NEXT / official client | Installed desktop app. Anchor set verified against **0.2.1-rc.2** (loose layout), **0.2.1-rc.4** (DSH NEXT, asar layout), **0.2.1-rc.5** and **0.2.2-rc.1** (official clients, runtime nested under `dsh/` inside the asar) |
 | Node.js | **18 or newer** (the patch scripts only) |
 | dsh-context plugin | Optional. Without it: lifetime tokens still work; the per-day window/activity may stay empty |
 
@@ -57,7 +57,7 @@ Both installation layouts are supported:
 | Layout | Target | How it is written |
 | --- | --- | --- |
 | loose (older DSH Desktop) | `<resources>/app/node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js` | backup, then replace that file in place |
-| asar (DSH NEXT / official 0.2.1-rc.5 client) | the same entry inside `<resources>/app.asar`, at the archive root or under `dsh/` — located by suffix | patched bundle goes to `<resources>/app.asar.unpacked/...`; only the archive header is rewritten to flag the entry `unpacked` (the data region is never moved) |
+| asar (DSH NEXT / official 0.2.1-rc.5 and 0.2.2-rc.1 clients) | the same entry inside `<resources>/app.asar`, at the archive root or under `dsh/` — located by suffix | patched bundle goes to `<resources>/app.asar.unpacked/...`; only the archive header is rewritten to flag the entry `unpacked` (the data region is never moved) |
 
 Pass the `resources` directory, the `app.asar` path, or set an env var:
 
@@ -140,23 +140,23 @@ from the layout:
 
 - **loose** (older DSH Desktop) ships an unpacked `resources/app/` tree, so the bundle file is backed up
   and rewritten in place.
-- **asar** (DSH NEXT, and the official client since 0.2.1-rc.5) packs the app into `resources/app.asar`.
+- **asar** (DSH NEXT, and the official client since 0.2.1-rc.5, including 0.2.2-rc.1) packs the app into `resources/app.asar`.
   Electron's asar reader serves entries flagged `unpacked: true` from
   `resources/app.asar.unpacked/<path>` (that is how native modules are shipped), so the patch (1) writes
   the patched bundle to that `.unpacked` path and (2) rewrites only the archive header (~5 MB) to flag the
   entry, refresh its `size` and drop the stale `integrity`. The data region is never moved, so revert
   writes the original header back and the archive becomes **byte-identical** to the pre-patch file.
 - The directory prefix inside the archive is not fixed: `0.2.1-rc.4` (DSH NEXT) keeps `node_modules/...`
-  at the archive root, while `0.2.1-rc.5` (official client) nests the runtime under `dsh/`
+  at the archive root, while `0.2.1-rc.5` and `0.2.2-rc.1` (official clients) nest the runtime under `dsh/`
   (`dsh/node_modules/...`). The patch walks the header and matches the
   `node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js` suffix, so both layouts work.
   If the archive contains **two** copies of the bundle, the patch aborts and lists them, asking for an
   explicit `--bundle "<install>/resources/app.asar/<path>"` instead of guessing.
 
 This relies on Electron's own asar semantics and was verified on a real install: the official 0.2.1-rc.5
-client starts its host as `DeepSeek Harness.exe` with `ELECTRON_RUN_AS_NODE=1`, reads the client bundle
-through Electron's asar shim, and resolves `readFileSync` / `stat` to the `.unpacked` override. That
-client relies on the asar `unpacked` mechanism but does **not** enable
+and 0.2.2-rc.1 clients start their host as `DeepSeek Harness.exe` with `ELECTRON_RUN_AS_NODE=1`, read the
+client bundle through Electron's asar shim, and resolve `readFileSync` / `stat` to the `.unpacked`
+override. Those clients rely on the asar `unpacked` mechanism but do **not** enable
 `EnableEmbeddedAsarIntegrityValidation`, so the header rewrite does not trip an integrity check.
 
 ## Development
@@ -182,6 +182,7 @@ pass `-- --resources "<install>/resources"` to load/render tests; the bundle is 
 | `0.2.1-rc.2` | verified (loose layout, anchors tested end to end) |
 | `0.2.1-rc.4` | verified (DSH NEXT, asar layout, including the override and a byte-identical revert round trip) |
 | `0.2.1-rc.5` | verified (official client, asar layout with the runtime under `dsh/`, including the override and a byte-identical revert round trip) |
+| `0.2.2-rc.1` | verified (official client, asar layout with the runtime under `dsh/`, in-place header rewrite, including the override and a byte-identical revert round trip) |
 | other releases | attempted, aborts safely if anchors moved |
 
 ## Legal and privacy

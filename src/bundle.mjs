@@ -86,7 +86,7 @@ export function candidateResourceDirs(platform = process.platform, env = process
 
 /**
  * Best-effort discovery of the account entries inside an archive. Layouts differ: older builds keep
- * `node_modules` at the archive root, newer ones (0.2.1-rc.5) nest the runtime under `dsh/`. Failure
+ * `node_modules` at the archive root, newer ones (0.2.1-rc.5 and later) nest the runtime under `dsh/`. Failure
  * is not fatal — callers fall back to the classic path and the read itself reports the problem.
  * @param {string} asarPath
  * @returns {{ bundleRelPath: string, packageRelPath: string | null } | null}

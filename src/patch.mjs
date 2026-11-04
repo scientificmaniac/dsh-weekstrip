@@ -286,7 +286,7 @@ environment
 
 layouts
   loose        <resources>/app/node_modules/.../lib/client.js is edited in place
-  asar         <resources>/app.asar (DSH NEXT / official 0.2.1-rc.5 client): the patched bundle
+  asar         <resources>/app.asar (DSH NEXT / official 0.2.1-rc.5+ client): the patched bundle
                becomes an app.asar.unpacked override; the entry is found by path suffix
 
 After apply/revert, fully quit and relaunch DSH.`)
